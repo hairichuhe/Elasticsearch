@@ -72,4 +72,7 @@ const esClient = new elasticsearch.Client({
 
 注意：这篇导读的所有源代码都可以在GitHub下载查看。最简单的查看方式是在你的PC机上克隆仓库，并且从那里运行示例代码：
 ```
+git clone https://github.com/hairichuhe/Elasticsearch.git
+cd Elasticsearch
+npm install
 ```
