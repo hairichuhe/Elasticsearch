@@ -2,7 +2,12 @@
 Elasticsearch 是一款开源的搜索引擎，由于其高性能和分布式系统架构而备受关注。本文将讨论其关键特性，并手把手教你如何用它创建 Node.js 搜索引擎。
 
 ** [参考链接](http://www.open-open.com/lib/view/open1476345849465.html) **
-** [参考文章]http://www.open-open.com/lib/view/open1454483379683.html) **
+
+** [参考文章](http://www.open-open.com/lib/view/open1454483379683.html) **
+
+** [停止和启动](http://www.05935.com/83/120461/) **
+
+** [插件安装](http://blog.csdn.net/napoay/article/details/53896348) **
 ## Elasticsearch 概述
 
 Elasticsearch 底层使用 Apache Lucene 库，Apache Lucene 自身是一款高性能、基于文本的搜索引擎库。 Elasticsearch 并不以提供数据存储和检索等类数据库功能为核心目标，相反，它以搜索引擎(服务器端)为目标，意在提供数据索引、数据检索、和数据实时分析功能
