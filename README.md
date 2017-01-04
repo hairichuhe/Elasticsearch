@@ -84,3 +84,151 @@ git clone https://github.com/hairichuhe/Elasticsearch.git
 cd Elasticsearch
 npm install
 ```
+
+## 数据导入
+在本教程中，我将使用 1000 篇学术论文里的内容，这些内容是根据随机算法逐一生成的，并以 JSON 格式提供，其中的数据格式如下所示：
+```
+{
+    "id": "575084573a2404eec25acdcd",
+    "title": "Id sint ex consequat ut.",
+    "journal": "adipisicing duis nostrud adipisicing",
+    "volume": 54,
+    "number": 6,
+    "pages": "255-268",
+    "year": 2011,
+    "authors": [
+      {
+        "firstname": "Kerr",
+        "lastname": "Berry",
+        "institution": "Skyplex",
+        "email": "Kerr@Skyplex.info"
+      },
+      {
+        "firstname": "Fischer",
+        "lastname": "Farmer",
+        "institution": "Digique",
+        "email": "Fischer@Digique.biz"
+      },
+      {
+        "firstname": "Brandie",
+        "lastname": "Reed",
+        "institution": "Fanfare",
+        "email": "Brandie@Fanfare.com"
+      },
+      {
+        "firstname": "Martinez",
+        "lastname": "Bradford",
+        "institution": "Comveyer",
+        "email": "Martinez@Comveyer.name"
+      },
+      {
+        "firstname": "Lula",
+        "lastname": "Charles",
+        "institution": "Gadtron",
+        "email": "Lula@Gadtron.tv"
+      }
+    ],
+    "abstract": "Do occaecat reprehenderit dolore proident nulla magna nostrud aliquip dolore. Officia minim eiusmod eu minim ea labore velit ea. Voluptate sit deserunt duis reprehenderit.",
+    "link": "http://ea.ca/575084573a2404eec25acdcd.pdf",
+    "keywords": [
+      "aute",
+      "nisi",
+      "adipisicing",
+      "fugiat",
+      "qui"
+    ],
+    "body": "Quis pariatur velit ipsum tempor eu ad……"
+  }
+```
+JSON 格式中的每个字段如字面意思，无需多余解释，但值得注意的是：由于<body>包含随机生成的文章的全部的内容（大概有100~200个段落），所以并未展示，若要获取完整数据。
+虽然 Elasticsearch 提供了索引(indexing) ， 更新(updating) 、 删除(deleting) 单个数据的方法，但我们采用 批量(bulk) 接口导入数据，因为批量接口在大型数据集上执行操作的效率更高。
+```
+const fs = require('fs');
+const elasticsearch = require('elasticsearch');
+const esClient = new elasticsearch.Client({
+	host: '127.0.0.1:9200',
+	log: 'error'
+});
+
+const bulkIndex = function bulkIndex(index, type, data) {
+	let bulkBody = [];
+	
+	data.forEach(item => {
+		bulkBody.push({
+			index: {
+				_index: index,
+				_type: type,
+				_id: item.id
+			}
+		});
+
+		bulkBody.push(item);
+	});
+	
+	esClient.bulk({body: bulkBody})
+	.then(response => {
+		let errorCount = 0;
+		response.items.forEach(item => {
+			if (item.index && item.index.error) {
+				console.log(++errorCount, item.index.error);
+			}
+		});
+		console.log(`Successfully indexed ${data.length - errorCount} out of ${data.length} items`);
+	})
+	.catch(console.err);
+};
+
+// only for testing purposes
+// all calls should be initiated through the module
+const test = function test() {
+	const articlesRaw = fs.readFileSync('data.json');
+	const articles = JSON.parse(articlesRaw);
+	console.log(`${articles.length} items parsed from data file`);
+	bulkIndex('library', 'article', articles);
+};
+
+test();
+
+module.exports = {
+	bulkIndex
+};
+```
+这里，我们调用函数bulkIndex建立索引，并传入 3 个参数，分别是：索引名 library，类型名library，JSON 数据格式变量 articles。bulkIndex函数自身则通过调用esClient对象的bulk接口实现，bulk 方法包含一个body属性的对象参数，并且每个body属性值是一个包含 2 种操作实体的数组对象。第一个实体是 JSON 格式的操作类型对象，该对象中的index属性决定了操作的类型(本例子是文件索引)、索引名、文件ID。第二个实体则是文件对象本身。
+
+注意，后续可采用同样的方式，为其他类型文件（如书籍或者报告）添加索引。我们还可以有选择的每个文件分配一个唯一的ID，如果不体统唯一的ID，Elasticsearch 将主动为每个文件分配一个随机的唯一ID。
+
+假设你已经从代码库中下载了 Elasticsearch 项目代码，在项目根目录下执行如下命令，即可将数据导入至Elasticsearch中：
+```
+```
+## 检查数据的索引是否准确
+Elasticsearch 最大的特性是接近实时检索，这意味着，一旦文档索引建立完成，1 秒内就可被检索。索引一旦建立完成，则可通过运行 indice.js 检查索引信息的准确性：
+```
+```
+client 中的cat 对象方法提供当前运行实例的各种信息。其中的 indices 方法列出所有的索引信息，包括每个索引的健康状态、以及占用的磁盘大小。 而其中的 v 选项为 cat方法新增头部响应。
+
+当运行上面代码段，您会发现，集群的健康状态被不同的颜色标示。其中，红色表示为正常运行的有问题集群；黄色表示集群可运行，但存在告警；绿色表示集群正常运行。在本地运行上面的代码段，您极有可能(取决于您的配置)看到集群的健康状态颜色是黄色，这是因为默认的集群设置包含 5 个节点，但本地运行只有 1 个实例正常运行。鉴于本教程的目的仅局限于 Elasticsearch 指导学习，黄色即可。但在线上环境中，你必须确保集群的健康状态颜色是绿色的。
+
+
+## 动态和自定义映射
+如前所述, Elasticsearch 无模式(schema-free)，这意味着，在数据导入之前，您无需定义数据的结构(类似于SQL数据库需要预先定义表结构)，Elasticsearch 会主动检测。尽管 Elasticsearch 被定义为无模式，但数据结构上仍有些限制。
+
+Elasticsearch 以映射的方式引用数据结构。当数据索引建立完成后，如果映射不存在，Elasticsearch 会依次检索 JSON 数据的每个字段，然后基于被字段的类型(type)自动生成映射(mapping)。如果存在该字段的映射，则会确保按照同样的映射规则新增数据。否则直接报错。
+
+比如：如果{"key1": 12} 已经存在，Elasticsearch 自动将字段 key1 映射为长整型。现在如果你尝试通过{"key1": "value1", "key2": "value2"} 检索, 则会直接报错，因为系统预期字段 key1 为长整型。同时，如果通过 {"key1": 13, "key2": "value2"} 检索则不会报错，并为字段 key2 新增 string 类型。
+
+映射不能超出文本的范围，大都数情况下，系统自动生成的映射都可正常运行。
+
+## 构建搜索引擎
+一旦完成数据索引，我们就可以开始实现搜索引擎。Elasticsearch提供了一个直观的基于JSON的全搜索查询的结构-Query DSL， 定义查询 。有许多有用的搜索查询类型，但是在这篇文章中，我们将只看到几个通用的类型。
+
+请记住，我提供了每个展示例子的源码的连接。设置完你的环境和索引测试数据后，你可以下载源码，然后运行在你的机器上运行任何例子。可以通过命令行运行节点filename.js。
+
+## 返回一个或多个索引的所有记录
+为了执行我们的搜索，我们将使用客户端提供的多种搜索方法。最简单的查询是match_all，它可以返回一个或多个索引的所有的记录。下面的例子显示了我们怎么样获取在一个索引中获取所有存储的记录。
+```
+```
+主要的搜索查询包含在Query对象中。就像我们接下来看到的那样，我们可以添加不同的搜索查询类型到这个对象。我们可以为每一个Query添加一个查询类型的关键字（如match_all），让这个Query成为一个包含搜索选项的对象。由于我们想返回索引的所有记录，所以在这个例子中没有查询选项。
+
+除了Query对象，搜索体中可以包含其他选项的属性，如 size 和from。size属性决定了返回记录的数量。如果这个值不存在，默认返回10个记录。from属性决定了返回记录的起始索引，这对分页有用。
+
+## 理解查询API的返回结果
