@@ -18,7 +18,3 @@ const test = function test() {
 };
 
 test();
-
-module.exports = {
-	indices
-};

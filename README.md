@@ -199,14 +199,43 @@ module.exports = {
 
 假设你已经从代码库中下载了 Elasticsearch 项目代码，在项目根目录下执行如下命令，即可将数据导入至Elasticsearch中：
 ```
+$ node app.js
+1000 items parsed from data file
+Successfully indexed 1000 out of 1000 items
 ```
 ## 检查数据的索引是否准确
 Elasticsearch 最大的特性是接近实时检索，这意味着，一旦文档索引建立完成，1 秒内就可被检索。索引一旦建立完成，则可通过运行 indice.js 检查索引信息的准确性：
 ```
+const elasticsearch = require('elasticsearch');
+const esClient = new elasticsearch.Client({
+	host: '127.0.0.1:9200',
+	log: 'error'
+});
+
+const indices = function indices() {
+	return esClient.cat.indices({v: true})
+	.then(console.log)
+	.catch(err => console.error(`Error connecting to the es client: ${err}`));
+};
+
+// only for testing purposes
+// all calls should be initiated through the module
+const test = function test() {
+	console.log(`elasticsearch indices information:`);
+	indices();
+};
+
+test();
 ```
 client 中的cat 对象方法提供当前运行实例的各种信息。其中的 indices 方法列出所有的索引信息，包括每个索引的健康状态、以及占用的磁盘大小。 而其中的 v 选项为 cat方法新增头部响应。
 
 当运行上面代码段，您会发现，集群的健康状态被不同的颜色标示。其中，红色表示为正常运行的有问题集群；黄色表示集群可运行，但存在告警；绿色表示集群正常运行。在本地运行上面的代码段，您极有可能(取决于您的配置)看到集群的健康状态颜色是黄色，这是因为默认的集群设置包含 5 个节点，但本地运行只有 1 个实例正常运行。鉴于本教程的目的仅局限于 Elasticsearch 指导学习，黄色即可。但在线上环境中，你必须确保集群的健康状态颜色是绿色的。
+```
+node indices.js
+elasticsearch indices information:
+health status index   uuid                   pri rep docs.count docs.deleted store.size pri.store.size
+yellow open   library pWbBy2xNSvGKXZCmnX2alg   5   1       1000            0     44.2mb         44.2mb
+```
 
 
 ## 动态和自定义映射
@@ -226,9 +255,308 @@ Elasticsearch 以映射的方式引用数据结构。当数据索引建立完成
 ## 返回一个或多个索引的所有记录
 为了执行我们的搜索，我们将使用客户端提供的多种搜索方法。最简单的查询是match_all，它可以返回一个或多个索引的所有的记录。下面的例子显示了我们怎么样获取在一个索引中获取所有存储的记录。
 ```
+// search_all.js
+
+const elasticsearch = require("elasticsearch");
+const esClient = new elasticsearch.Client({
+	host:'127.0.0.1:9200',
+	log:'error'
+});
+
+const search = function(index,body){
+	return esClient.search({index:index,body:body});
+};
+
+const test = function test(){
+	let body={
+		size:20,
+		from:0,
+		query:{
+			match_all:{}
+		}
+	};
+
+	console.log(`retrieving all documents (displaying ${body.size} at a time)...`);
+	search('library',body)
+	.then(results => {
+		console.log(`found ${results.hits.total} items in ${results.took}ms`);
+		console.log(`returned article titles:`);
+		results.hits.hits.forEach((hit, index) => console.log(`\t${body.from + ++index} - ${hit._source.title}`));
+	})
+	.catch(console.error)
+};
+
+test();
 ```
 主要的搜索查询包含在Query对象中。就像我们接下来看到的那样，我们可以添加不同的搜索查询类型到这个对象。我们可以为每一个Query添加一个查询类型的关键字（如match_all），让这个Query成为一个包含搜索选项的对象。由于我们想返回索引的所有记录，所以在这个例子中没有查询选项。
 
 除了Query对象，搜索体中可以包含其他选项的属性，如 size 和from。size属性决定了返回记录的数量。如果这个值不存在，默认返回10个记录。from属性决定了返回记录的起始索引，这对分页有用。
 
 ## 理解查询API的返回结果
+如果你打印搜索API返回结果（上面例子的结果）日志。由于它包含了很多信息，刚开始看起来无所适从。
+```
+{ took: 6,
+  timed_out: false,
+  _shards: { total: 5, successful: 5, failed: 0 },
+  hits:
+   { total: 1000,
+     max_score: 1,
+     hits:
+      [ [Object],
+        [Object],
+    ...
+        [Object] ] } }
+```
+在最高级别日志输出里，返回结果中含有took 属性，该属性值表示查找结果所用的毫秒数，timed_out只有在最大允许时间内没有找到结果时为true，_shards 是不同节点的状态的信息（如果部署的是节点集群），hits是查询结果。
+hits的属性值是一个含有下列属性的对象：
+
+
+    total —表示匹配的条目的总数量
+
+    max_score — 找到的条目的最大分数
+
+    hits — 找到的条目的数组，在hits数组里的每一天记录，都有索引，类型，文档，ID，分数，和记录本身（在_source元素内）。
+这十分复杂，但是好消息是一旦你实现了一个提取结果的方法，不管你的搜索查询结果时什么，你都可以使用相同的格式获取结果。
+
+还需要注意的是Elasticsearch 有一个好处是它自动地给每一个匹配记录分配分数，这个分数用来量化文件的关联性，返回结果的顺序默认的按钮分数倒排。在例子中我们使用match_all取回了所有的记录，分数是没有意义的，所有的分数都被计算为1.0。
+
+## 匹配含 指定字段值的 文档
+现在我们看几个更加有趣的例子. 我们可以通过使用 match 关键字查询文档是否与指定的字段值匹配。一个最简单的包含 match 关键字的检索主体代码如下所示：
+```
+{
+  query: {
+    match: {
+      title: {
+        query: 'search terms go here'
+      }
+    }
+  }
+}
+```
+如上文所述, 首先通过为查询对象新增一个条目，并指定检索类型，上面示例给的是 match 。然后再检索类型对象里面，申明待检索的文档对象，本例是 title 文档对象。然后再文档对象里面，提供相关检索数据，和 query 属性。我希望你测试过上述示例之后，惊讶于 Elasticsearch 的检索效率。
+上述示例执行成功后，将返回title(标题)字段与任一 query 属性词匹配的所有文档信息。 同时还可以参考如下示例，为查询对象附加最小匹配数量条件：
+```
+// search_match.js
+
+...
+match: {
+  title: {
+    query: 'search terms go here',
+    minimum_should_match: 3
+  }
+}
+...
+```
+与该查询匹配的文档 title(标题)字段至少包含上诉指定的 3 个关键词。如果查询关键词少于 3个，那么匹配文档的 title(标题)字段必须包含所有的查询词。Elasticsearch 的另一个有用的功能是 fuzziness( 模糊匹配).这对于用户输入错误的查询词将非常有用，因为fuzzy(模糊匹配)将发现拼写错误并给出最接近词供选择。对于字符串类型，每个关键字的模糊匹配值是根据算法Levenshtein distance 算出的最大允许值。fuzziness(模糊匹配)示例如下所示：
+```
+match: {
+  title: {
+    query: 'search tems go here',
+    minimum_should_match: 3,
+    fuzziness: 2
+  }
+}
+```
+
+## 多个字段搜索
+如果你想在多个字段中搜索，可以使用multi_match搜索类型。除了Query对象中的fields属性外，它同match有点类似。fields属性是需要搜索的字段的集合。这里我们将在title,authors.firstname, 和authors.lastname 字段中搜索。
+```
+// search_multi_match
+
+multi_match: {
+  query: 'search terms go here',
+  fields: ['title', 'authors.firstname',  'authors.lastname']
+}
+```
+multi_match查询支持其他搜索属性，如minimum_should_match 和fuzziness。Elasticsearch支持使用通配符（如*）匹配字段，那么我们可以使用['title', 'authors.*name']把上面的例子变得更短些。
+
+## 匹配一个完整的句子
+Elasticsearch也支持精确的匹配一个输入的句子，而不是在单词级别。这个查询是在普通的match 查询上扩展而来，叫做 match_phrase。下面是一个match_phrase的例子
+```
+// match_phrase.js
+
+match: {
+  title: {
+    query: 'search phrase goes here',
+    type: 'phrase'
+  }}
+```
+
+## 联合多个查询
+到目前为止，在例子中我们每次请求只使用了单个查询。然而Elasticsearch允许你联合多个查询。最常用的复合查询是bool，bool查询接受4种关键类型must, should, must_not, 和filter. 像它们的名字表示的那样，在查询结果的数据里必须匹配must里的查询，必须不匹配must_not里的查询，如果哪个数据匹配should里的查询，它就会获得高分。每一个提到的元素可以使用查询数组格式接受多个搜索查询。
+
+下面，我们使用bool查询及一个新的叫做query_string的查询类型。它允许你使用 AND 或 OR写一些比较高级的查询。在这里可以看到 query_string语法的所有文档。另外，我们使用了 range查询，它可以让我们通过给定的范围的方式去限制一个字段。
+```
+// search_bool.js
+
+{
+  bool: {
+    must: [
+      {
+        query_string: {
+          query: '(authors.firstname:term1 OR authors.lastname:term2) AND (title:term3)'
+        }
+      }
+    ],
+    should: [
+      {
+        match: {
+          body: {
+            query: 'search phrase goes here',
+            type: 'phrase'
+          }
+        }
+      }
+    ],
+    must_not: [
+      {
+        range: {
+          year: {
+            gte: 2011,
+            lte: 2013
+          }
+        }
+      }
+    ]
+  }
+}
+```
+在上面的例子中，查询返回的数据，作者的名包含term1 或它们的姓包含term2，并且它们的title含有term3，而且它们不在2011,2012或2013年出版的，还有在body字段里含有给定句子数据将获得高分，并被排列到结果的前面（由于在should从句中的match 查询）。
+
+## 过滤，聚合，和建议
+除了它先进的搜索功能外，Elasticsearch 还提供了其他的功能。接下来，我们再看看其他三个比较常用的功能。
+
+## 过滤
+也许，你经常想使用特定的条件凝缩查询结果。Elasticsearch通过filters 提供了这样的功能。在我们的文章数据里，假设你的查询返回了几个文章，这些文章是你选择的在5个具体年份发布的文章。你可以简单的从搜索结果中过滤出那些不匹配条件的数据，而不改变查询结果的顺序。
+
+在bool 查询的must 从句中，过滤和相同查询之间的不同之处在于，过滤不会影响搜索分数，而must 查询会。当查询结果返回并且用户使用给定的条件过滤时，他们不想改变结果的顺序，相反地，他们只想从结果中移除不相关的数据。过滤与搜索的格式一样，但在通常情况下，他们在有明确值的字段上定义，而不是文本字符串上。Elasticsearch 推荐通过bool复合查询的filter从句添加过滤。
+
+继续看上面的例子，假设我们想把搜索结果限制在在2011到2015年之间发布的文章里。这样做，我们只需要在一般搜索查询的filter 部分添加range 查询。这将会从结果中移除那些不匹配的数据。下面是一个过滤查询的例子。
+```
+// filter.js
+
+{
+  bool: {
+    must: [
+      {
+        match: {
+          title: 'search terms go here'
+        }
+      }
+    ],
+    filter: [
+      {
+        range: {
+          year: {
+            gte: 2011,
+            lte: 2015
+          }
+        }
+      }
+    ]
+  }
+}
+```
+聚合框架会基于一次搜索查询，提供各种聚合数据和统计信息。两个主要的聚合类型是度量和分块, 度量聚合会对一个文档的集合进行持续的跟踪并计算度量，而分块聚合则会进行块的构建，每个块都会跟一个键和一个文档查询条件关联起来。度量聚合的示例有平均值，最小值，最大值，加总值还有计数值。分块聚合的示例有范围、日期范围、直方图以及主题项。对聚合器更加深入的描述可以在 这里 找到。
+
+聚合可以放置在一个 aggregations 对象里面，而对象自己则是被直接放到 search 对象体中。在 aggregations 对象里面，每一个键都是由用户赋予一个聚合器的名称。聚合器的类型和其它选项都应该是作为这个键的值而放置的。接下来我们要来看看两个不同类型的聚合器，一个是度量的，一个块的。我们会用度量聚合器来尝试找出数据集合中最小的年份值（也就是最久远的文章），而使用块集合器我要做的就是尝试找出每一个关键词各自出现了多少次。
+
+```
+// aggregations.js{
+  aggregations: {
+    min_year: {
+      min: {field: 'year'}
+    },
+    keywords: {
+      terms: {field: 'keywords'}
+    }
+  }}
+```
+在上述示例中，我们将度量聚合器命名为 min_year (也可以是其它名称), 也就是 year 这个域上的 min 类型。块聚合器责备命名为 keywords, 就是 keywords 这个域上的 terms 类型。聚合操作的结果被装在了响应消息里的 aggregations 元素里面，更深入一点会发现里面包含了每一个聚合器（这里是 min_year 和 keywords）以及它们的聚合操作结果。 如下是来自这个示例响应消息中的部分内容。
+```
+{
+...
+  "aggregations": {
+    "keywords": {
+      "doc_count_error_upper_bound": 0,
+      "sum_other_doc_count": 2452,
+      "buckets": [
+        {
+          "key": "pariatur",
+          "doc_count": 88
+        },
+        {
+          "key": "adipisicing",
+          "doc_count": 75
+        },
+        ...
+      ]
+    },
+    "min_year": {
+      "value": 1970
+    }
+  }
+}
+```
+响应消息中默认最多会有10个块返回。你可以在请求中 filed 的边上加入一个size键来规定返回的块的最大数量。如果你想要接收到所有的块，可以将这个值设置为 0。
+
+Elasticsearch 提供了多种可以对输入内容提供替换和补全的关联项推荐器。下面将介绍术语和短语推荐器。术语推荐器为每个输入文本中的术语提供关联推荐（如果有的话），而短语推荐器将整个输入文本看做一个短语（与将其拆分成术语对比），然后提供其他短语的推荐（如果有的话）。使用推荐API时，需要调用Node.js client的suggest方法。如下为术语推荐器的示例。
+```
+// suggest_term.js
+
+esClient.suggest({
+  index: 'articles',
+  body: {
+    text: 'text goes here',
+    titleSuggester: {
+      term: {
+        field: 'title',
+        size: 5
+      }
+    }
+  }
+}).then(...)
+```
+与其他client的方法相同，在请求体中包含一个index字段指明采用的索引。在body字段中添加查询推荐的文本，然后给每个推荐器一个（包含了聚合对象的）名称（本例中的titleSuggester）。其值指明了推荐器的类型和配置。这里，为title字段使用了术语推荐器，限制最大建议的数量是每个token最多5个（size: 5）。
+
+建议API返回的数据中包含了对应请求中每一个建议器的key，其值是一个与你输入文本中术语数量相同的一个数组。对于数组中的每一个元素，包含一个options数组，其每个对象的text字段中包含了推荐的文本。如下是上面例子中返回数据的一部分。
+```
+...
+"titleSuggester": [
+  {
+    "text": "term",
+    "offset": 0,
+    "length": 4,
+    "options": [
+      {
+        "text": "terms",
+        "score": 0.75,
+        "freq": 120
+      },
+      {
+        "text": "team",
+        "score": 0.5,
+        "freq": 151
+      }
+    ]
+  },
+  ...
+]
+...
+```
+获取短语推荐的时候，采用与上文相同的格式并替换推荐器的类型字段即可。如下的例子中，返回数据将与上例格式相同。）
+```
+// suggest_phrase.js
+
+esClient.suggest({
+  index: 'articles',
+  body: {
+    text: 'phrase goes here',
+    bodySuggester: {
+      phrase: {
+        field: 'body'
+      }
+    }
+  }
+}).then(...).catch(...)
+```
