@@ -373,7 +373,7 @@ multi_match查询支持其他搜索属性，如minimum_should_match 和fuzziness
 ## 匹配一个完整的句子
 Elasticsearch也支持精确的匹配一个输入的句子，而不是在单词级别。这个查询是在普通的match 查询上扩展而来，叫做 match_phrase。下面是一个match_phrase的例子
 ```
-// match_phrase.js
+// search_match_phrase.js
 
 match: {
   title: {
