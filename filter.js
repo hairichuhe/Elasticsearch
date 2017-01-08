@@ -1,12 +1,13 @@
-// search_bool.js
+//filter.js
+
 const elasticsearch = require("elasticsearch");
-const esClient = elasticsearch.Client({
+const esClient = new elasticsearch.Client({
 	host:"127.0.0.1:9200",
-	log:'error'
+	log:"error"
 });
 
 const search = function search(index,body){
-	return esClient.search({index:index,body:body})
+	return esClient.search({index:index,body:body});
 };
 
 const test = function test(){
@@ -18,7 +19,7 @@ const test = function test(){
 				must:[
 					{
 						query_string:{
-							query:'(authors,firstname:D* OR authors.lastname:H*) AND (title:excepteur)'
+							query:'(authors.firstname:D* OR authors.lastname:H*) AND (title:excepteur)'
 						}
 					}
 				],
@@ -26,18 +27,28 @@ const test = function test(){
 					{
 						match:{
 							body:{
-								query:'Elit nisi fugiat dolore amet',
-								type:'phrase'
+								query: 'Elit nisi fugiat dolore amet',
+								type: 'phrase'
 							}
 						}
 					}
 				],
 				must_not:[
 					{
+						range: {
+							year: {
+								lte: 2000,
+								gte: 1990
+							}
+						}
+					}
+				],
+				filter:[
+					{
 						range:{
 							year:{
-								lte:2000,
-								gte:1990
+								gte:2011,
+								lte:2015
 							}
 						}
 					}
@@ -54,4 +65,5 @@ const test = function test(){
 	})
 	.catch(console.error);
 };
+
 test();
